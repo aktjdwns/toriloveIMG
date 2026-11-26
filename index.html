@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>토리의 수상한 상자</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 다정하고 장난스러운 숲속 선물 한 장면
+   IDEA: 숲속 이끼 무대 위에서 벌어지는 작은 인형극
+   PICTURE: 화면 전체가 3D 무대, 토리와 상자가 주인공
+   COLOUR and TYPE: 크림 하늘, 이끼 초록, 도토리 갈색, 리본 보라 포인트 / Jua + Gowun Dodum
+   LAYOUT: 전체 화면 무대, 위쪽에 메시지 카드, 아래쪽에 버튼 */
+:root{--sky:#f6eedf;--sky2:#e9f0dc;--ink:#3a2a20;--brown:#8a5a3a;--violet:#7b5cc4;--card:#fffaf2}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--sky);color:var(--ink);font:16px/1.55 "Gowun Dodum",system-ui,sans-serif}
+#stage{position:fixed;inset:0;background:linear-gradient(180deg,var(--sky) 0%,var(--sky2) 70%)}
+#stage canvas{display:block;width:100%;height:100%}
+header{position:fixed;top:0;left:0;right:0;padding:18px max(4vw,16px);display:flex;justify-content:space-between;align-items:center;pointer-events:none;z-index:3}
+header h1{margin:0;font:400 clamp(22px,3.2vw,30px)/1.05 "Jua",sans-serif;color:var(--brown)}
+.bubble{position:fixed;z-index:4;transform:translate(-50%,-100%);background:#fff;border:2.5px solid var(--ink);border-radius:18px;padding:6px 14px;font:400 20px/1.2 "Jua",sans-serif;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s}
+.bubble.on{opacity:1}
+.bubble::after{content:"";position:absolute;left:50%;bottom:-11px;width:14px;height:14px;background:#fff;border-right:2.5px solid var(--ink);border-bottom:2.5px solid var(--ink);transform:translateX(-50%) rotate(45deg)}
+.bubble.big{font-size:34px;color:var(--violet)}
+.bubble.alert{font-size:46px;color:#e04848;background:#fff4c2;padding:2px 18px}
+#card{position:fixed;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#card small{display:block;font-size:13px;color:#8b7a6b;margin-bottom:6px}
+#msg{margin:0;white-space:pre-line;font:400 clamp(20px,3.4vw,26px)/1.4 "Jua",sans-serif;color:var(--ink);text-wrap:balance}
+#controls{position:fixed;z-index:5;left:0;right:0;bottom:max(22px,env(safe-area-inset-bottom));display:flex;gap:10px;justify-content:center;flex-wrap:wrap;padding:0 16px}
+button{font:400 18px/1 "Jua",sans-serif;min-height:48px;padding:0 22px;border-radius:999px;border:2.5px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer;box-shadow:0 4px 0 var(--ink);transition:transform .1s,box-shadow .1s,opacity .2s}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+button:focus-visible{outline:3px solid var(--violet);outline-offset:3px}
+button.primary{background:var(--violet);color:#fff}
+button[hidden]{display:none}
+#note{position:fixed;z-index:3;right:max(4vw,16px);bottom:8px;font-size:13px;color:#8b7a6b;pointer-events:none}
+#fallback{position:fixed;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;font:400 20px/1.5 "Jua",sans-serif}
+@media(max-width:600px){#note{left:16px;right:16px;text-align:center;bottom:2px}#controls{bottom:30px}}
+@media(prefers-reduced-motion:reduce){#card{transition:opacity .2s}}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<header><h1>토리의 수상한 상자</h1></header>
+<div class="bubble" id="bubble"></div>
+<div id="card" role="status" aria-live="polite"><small>토리가 가져온 메시지</small><p id="msg"></p></div>
+<div id="controls">
+  <button id="again" class="primary" hidden>한 번 더 열기</button>
+  <button id="restart" hidden>처음부터 보기</button>
+</div>
+<div id="fallback">이 브라우저에서는 3D 화면을 띄울 수 없어요.<br>다른 브라우저로 열어 주세요.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+{
+// 메시지 목록: 여기 문구만 바꾸면 돼요
+// face: happy 신남 / funny 웃김 / scared 깜짝 / best 최고 / cry 눈물 / curious 궁금 / smug 가소롭 / fear 무서움 / lol 깔깔 / heart 하트 / normal 기본. 빼면 happy
+const MESSAGES = [
+  { text: "2026 IMG 고생했다 !!!", face: "happy" },
+  { text: "2026 IMG 고생했다 !!!\n(혜인 누나 빼고)", face: "funny" },
+  { text: "이혜인 사퇴\n-유우석 올림-", face: "scared" },
+  { text: "우 ~ 우우우 ~\n풍문으로 들었소", face: "best" },
+  { text: "시간 빌려서\n학술제 다시 보고싶다", face: "best" },
+  { text: "머니췍 민췍", face: "best" },
+  { text: "따봉 우석이\n메세지를 가져갔어요", face: "scared" },
+  { text: "숏박스도 세명인데\n긴밤은 두명", face: "cry" },
+  { text: "이난똥", face: "funny" },
+  { text: "주워온 고양이가\n리센느 데뷔", face: "best" },
+  { text: "저 바보 아닙니다", face: "funny" },
+  { text: "신고할게요", face: "funny" },
+  { text: "그래서 임원진 뒤풀이가 언제라고?", face: "curious" },
+  { text: "샤라웃 투 세계 최초 치즈 빙수", face: "funny" },
+  { text: "뭘 봐 ㅋ", face: "smug" },
+  { text: "오창이 낳은\n속사포 만취 래퍼", face: "funny" },
+  { text: "침대 속의 121cm 독재자", face: "fear" },
+  { text: "텐텐을 가져와", face: "lol" },
+  { text: "아갈머릴 찢어버릴라 ㄷㄷ", face: "fear" },
+  { text: "연출팀 수고했어 ❤️", face: "heart" },
+  { text: "장비팀 수고했어 ❤️", face: "heart" },
+  { text: "편집팀 수고했어 ❤️", face: "heart" },
+  { text: "회장단 수고했어 ❤️", face: "heart" },
+  { text: "아 진짜 회식 한번만 더 하자", face: "cry" },
+  { text: "2027도 최고는 아엠지", face: "best" }
+];
+
+const stage = document.getElementById('stage');
+const bubbleEl = document.getElementById('bubble');
+const card = document.getElementById('card');
+const msgEl = document.getElementById('msg');
+const againBtn = document.getElementById('again');
+const restartBtn = document.getElementById('restart');
+
+if (!window.THREE) { document.getElementById('fallback').style.display = 'flex'; throw new Error('no three'); }
+
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+} catch (e) { document.getElementById('fallback').style.display = 'flex'; throw e; }
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const LOOK = new THREE.Vector3(0, 1.0, 0);
+
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), curLook = new THREE.Vector3();
+const widePos = new THREE.Vector3(), wideLook = new THREE.Vector3(0, 1.0, 0);
+let shotName = 'wide', camEase = 3;
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight, aspect = w / h;
+  renderer.setSize(w, h);
+  camera.aspect = aspect;
+  const tanH = Math.tan(THREE.MathUtils.degToRad(19));
+  const needW = 6.4, needH = 4.6;
+  const dist = Math.max(needH / (2 * tanH), needW / aspect / (2 * tanH));
+  widePos.set(0, 1.0 + dist * 0.2, dist);
+  if (shotName === 'wide') { camPos.copy(widePos); camLook.copy(wideLook); }
+  camera.updateProjectionMatrix();
+}
+function shot(name, pos, look, cut, easeSpeed) {
+  shotName = name; camPos.copy(pos); camLook.copy(look); camEase = easeSpeed || 3;
+  if (cut) { camera.position.copy(pos); curLook.copy(look); camera.lookAt(curLook); }
+}
+window.addEventListener('resize', resize);
+resize();
+camera.position.copy(widePos); curLook.copy(wideLook);
+
+scene.add(new THREE.HemisphereLight(0xfff8ec, 0xa9b98a, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+sun.position.set(4, 8, 5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+scene.add(sun);
+
+const COL = { cream: 0xf8efe1, cap: 0x8a5a3a, rim: 0x6f4429, leaf: 0xb19a45, tail: 0xbb8b68, ink: 0x2e231e, pink: 0xf3a3ac };
+const mat = c => new THREE.MeshLambertMaterial({ color: c });
+const inkBack = new THREE.MeshBasicMaterial({ color: COL.ink, side: THREE.BackSide });
+function outline(mesh, s) { const o = new THREE.Mesh(mesh.geometry, inkBack); o.scale.setScalar(s || 1.05); mesh.add(o); return mesh; }
+function shadowed(m) { m.castShadow = true; return m; }
+const SPH = new THREE.SphereGeometry(1, 32, 24);
+
+// 바닥과 배경 소품
+const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 64), mat(0xd3e2b4));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const moss = new THREE.Mesh(new THREE.CircleGeometry(3.4, 48), mat(0xc4d8a0));
+moss.rotation.x = -Math.PI / 2; moss.position.y = 0.01; moss.receiveShadow = true; scene.add(moss);
+[[-5.5, -4, 1.3], [-3.2, -5.5, 1.0], [4.6, -4.5, 1.5], [6.8, -3, 1.0], [1.5, -6.5, 1.2]].forEach(([x, z, s]) => {
+  const b = shadowed(new THREE.Mesh(SPH, mat(0x9fbf78))); b.scale.set(s * 1.3, s, s); b.position.set(x, s * 0.5, z); scene.add(b);
+  const b2 = new THREE.Mesh(SPH, mat(0xb2cf8a)); b2.scale.set(s * 0.8, s * 0.7, s * 0.8); b2.position.set(x + s * 0.7, s * 0.4, z + 0.4); scene.add(b2);
+});
+function miniAcorn(x, z, r) {
+  const g = new THREE.Group();
+  const nut = new THREE.Mesh(SPH, mat(0xc79a62)); nut.scale.set(0.12, 0.15, 0.12); nut.position.y = 0.14; g.add(nut);
+  const cp = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(COL.rim)); cp.position.y = 0.2; g.add(cp);
+  g.position.set(x, 0, z); g.rotation.y = r; scene.add(g);
+}
+miniAcorn(-2.8, 1.4, 0.3); miniAcorn(2.9, 1.1, 1.2); miniAcorn(3.3, 1.6, 2.1); miniAcorn(-3.6, 0.4, 0.8);
+
+// ===== 토리 만들기 =====
+const tori = new THREE.Group(); scene.add(tori);
+const pose = new THREE.Group(); tori.add(pose);
+
+const body = outline(shadowed(new THREE.Mesh(SPH, mat(COL.cream))), 1.04);
+body.scale.set(0.6, 0.66, 0.56); body.position.y = 0.8; pose.add(body);
+
+const headG = new THREE.Group(); headG.position.y = 1.74; pose.add(headG);
+const head = outline(shadowed(new THREE.Mesh(SPH, mat(COL.cream))), 1.04);
+head.scale.set(0.64, 0.57, 0.6); headG.add(head);
+
+const capG = new THREE.Group(); capG.position.y = 0.16; headG.add(capG);
+const dome = outline(shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.69, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat(COL.cap))), 1.04);
+dome.scale.y = 0.72; capG.add(dome);
+const rim = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.075, 12, 48), mat(COL.rim)));
+rim.rotation.x = Math.PI / 2; capG.add(rim);
+const stem = outline(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.16, 12), mat(COL.rim)), 1.15);
+stem.position.y = 0.56; stem.rotation.z = 0.25; capG.add(stem);
+
+const leafShape = new THREE.Shape();
+leafShape.moveTo(0, 0); leafShape.bezierCurveTo(-0.2, 0.1, -0.16, 0.32, 0, 0.44); leafShape.bezierCurveTo(0.16, 0.32, 0.2, 0.1, 0, 0);
+const leafGeo = new THREE.ShapeGeometry(leafShape);
+const leafMat = new THREE.MeshLambertMaterial({ color: COL.leaf, side: THREE.DoubleSide });
+const leafInk = new THREE.MeshBasicMaterial({ color: COL.ink, side: THREE.DoubleSide });
+function makeLeaf(side) {
+  const pivot = new THREE.Group(); pivot.position.set(side * 0.62, 0.2, 0.04); pivot.rotation.z = -side * 0.55;
+  const spin = new THREE.Group(); pivot.add(spin);
+  const l = new THREE.Mesh(leafGeo, leafMat); l.position.z = 0.004; spin.add(l);
+  const lb = new THREE.Mesh(leafGeo, leafMat); lb.position.z = -0.012; spin.add(lb);
+  const li = new THREE.Mesh(leafGeo, leafInk); li.scale.setScalar(1.12); li.position.set(0, -0.025, -0.004); spin.add(li);
+  capG.add(pivot); return spin;
+}
+const leaves = [makeLeaf(-1), makeLeaf(1)];
+
+const face = new THREE.Group(); headG.add(face);
+const inkMat = new THREE.MeshBasicMaterial({ color: COL.ink });
+const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const eyes = [-1, 1].map(s => {
+  const g = new THREE.Group(); g.position.set(s * 0.22, 0.01, 0.55); g.rotation.y = s * 0.35; face.add(g);
+  const white = new THREE.Mesh(SPH, whiteMat); white.scale.set(0.1, 0.11, 0.03); white.visible = false; g.add(white);
+  const whiteRing = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.015, 6, 24), inkMat); whiteRing.position.z = 0.02; whiteRing.visible = false; g.add(whiteRing);
+  const dot = new THREE.Mesh(SPH, inkMat); dot.scale.set(0.075, 0.085, 0.04); dot.position.z = 0.02; g.add(dot);
+  const hl = new THREE.Mesh(SPH, whiteMat); hl.scale.setScalar(0.025); hl.position.set(0.025, 0.03, 0.055); g.add(hl);
+  const happy = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.018, 6, 16, Math.PI), inkMat); happy.position.z = 0.03; happy.visible = false; g.add(happy);
+  const tear = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({ color: 0x8fc8f0 })); tear.scale.set(0.035, 0.05, 0.03); tear.position.set(0, -0.12, 0.03); tear.visible = false; g.add(tear);
+  return { g, white, whiteRing, dot, hl, happy, tear };
+});
+[-1, 1].forEach(s => {
+  const ch = new THREE.Mesh(new THREE.CircleGeometry(0.085, 24), new THREE.MeshBasicMaterial({ color: COL.pink, transparent: true, opacity: 0.75 }));
+  ch.scale.x = 1.35; ch.position.set(s * 0.37, -0.11, 0.475); ch.rotation.y = s * 0.62; face.add(ch);
+});
+const nose = new THREE.Mesh(SPH, inkMat); nose.scale.set(0.03, 0.022, 0.02); nose.position.set(0, -0.06, 0.6); face.add(nose);
+const mouthW = new THREE.Group(); mouthW.position.set(0, -0.1, 0.59); face.add(mouthW);
+[-1, 1].forEach(s => { const a = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.011, 6, 12, Math.PI), inkMat); a.rotation.z = Math.PI; a.position.x = s * 0.04; mouthW.add(a); });
+const mouthO = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({ color: 0x8c3b3b })); mouthO.scale.set(0.06, 0.07, 0.02); mouthO.position.set(0, -0.14, 0.575); mouthO.visible = false; face.add(mouthO);
+
+// ===== 추가 표정 파츠 =====
+const redMat = new THREE.MeshBasicMaterial({ color: 0x8c3b3b });
+const tongueMat = new THREE.MeshBasicMaterial({ color: 0xf28c9a });
+const blueMat = new THREE.MeshBasicMaterial({ color: 0x8fc8f0 });
+const starShape = (() => { const s = new THREE.Shape(); for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.042 : 0.1, a = Math.PI / 2 + i * Math.PI / 5; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (i) s.lineTo(x, y); else s.moveTo(x, y); } s.closePath(); return s; })();
+const heartShape = (() => { const s = new THREE.Shape(); s.moveTo(0, -0.09); s.bezierCurveTo(-0.13, -0.01, -0.09, 0.1, 0, 0.04); s.bezierCurveTo(0.09, 0.1, 0.13, -0.01, 0, -0.09); return s; })();
+const starGeo = new THREE.ShapeGeometry(starShape), heartGeo = new THREE.ShapeGeometry(heartShape);
+const starMat = new THREE.MeshBasicMaterial({ color: 0xf6c454, side: THREE.DoubleSide });
+const heartMat = new THREE.MeshBasicMaterial({ color: 0xe8506b, side: THREE.DoubleSide });
+const barGeo = new THREE.BoxGeometry(1, 1, 1);
+function bar(parent, x, y, len, rot, th) { const b = new THREE.Mesh(barGeo, inkMat); b.scale.set(len, th || 0.02, 0.01); b.position.set(x, y, 0.03); b.rotation.z = rot; parent.add(b); return b; }
+eyes.forEach((e, i) => {
+  const s = i ? 1 : -1;
+  e.chev = new THREE.Group(); e.g.add(e.chev);
+  [1, -1].forEach(v => { const x1 = s * 0.045, y1 = v * 0.04, x2 = -s * 0.035, y2 = 0; bar(e.chev, (x1 + x2) / 2, (y1 + y2) / 2, Math.hypot(x2 - x1, y2 - y1) + 0.012, Math.atan2(y2 - y1, x2 - x1), 0.024); });
+  e.star = new THREE.Group(); e.g.add(e.star);
+  const so = new THREE.Mesh(starGeo, inkMat); so.scale.setScalar(1.28); so.position.z = 0.02; e.star.add(so);
+  const st = new THREE.Mesh(starGeo, starMat); st.position.z = 0.03; e.star.add(st);
+  e.heart = new THREE.Group(); e.g.add(e.heart);
+  const ho = new THREE.Mesh(heartGeo, inkMat); ho.scale.setScalar(1.22); ho.position.set(0, -0.004, 0.02); e.heart.add(ho);
+  const hh = new THREE.Mesh(heartGeo, heartMat); hh.position.z = 0.03; e.heart.add(hh);
+  e.lid = bar(e.g, 0, 0.03, 0.14, s * 0.12, 0.024);
+  e.brow = bar(e.g, 0, 0.15, 0.09, -s * 0.3, 0.02);
+  e.stream = [0, 1].map(j => { const d = new THREE.Mesh(SPH, blueMat); d.scale.set(0.03, 0.045, 0.03); d.userData.o = j * 0.5; e.g.add(d); return d; });
+  e.lolTear = new THREE.Mesh(SPH, blueMat); e.lolTear.scale.set(0.025, 0.035, 0.02); e.lolTear.position.set(s * 0.1, -0.03, 0.04); e.g.add(e.lolTear);
+});
+const mouthD = new THREE.Group(); mouthD.position.set(0, -0.12, 0.585); mouthD.rotation.x = -0.15; face.add(mouthD);
+mouthD.add(new THREE.Mesh(new THREE.CircleGeometry(0.1, 24, Math.PI, Math.PI), redMat));
+const tongue = new THREE.Mesh(new THREE.CircleGeometry(0.048, 16, 0, Math.PI), tongueMat); tongue.position.set(0, -0.09, 0.002); mouthD.add(tongue);
+const mouthSmirk = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 6, 12, Math.PI * 0.55), inkMat);
+mouthSmirk.position.set(0.035, -0.07, 0.59); mouthSmirk.rotation.z = Math.PI * 1.15; face.add(mouthSmirk);
+const mouthWave = new THREE.Group(); mouthWave.position.set(0, -0.13, 0.585); face.add(mouthWave);
+{ const pts = [[-0.07, 0], [-0.035, 0.018], [0, 0], [0.035, 0.018], [0.07, 0]];
+  for (let i = 0; i < 4; i++) { const [a, b] = [pts[i], pts[i + 1]]; bar(mouthWave, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.hypot(b[0] - a[0], b[1] - a[1]) + 0.01, Math.atan2(b[1] - a[1], b[0] - a[0]), 0.016); } }
+const fearShade = new THREE.Mesh(new THREE.CircleGeometry(0.3, 32, 0, Math.PI), new THREE.MeshBasicMaterial({ color: 0x7a9ad6, transparent: true, opacity: 0.35, depthWrite: false }));
+fearShade.scale.x = 1.4; fearShade.position.set(0, 0.08, 0.53); fearShade.rotation.x = -0.35; face.add(fearShade);
+const sweat = new THREE.Mesh(SPH, blueMat); sweat.scale.set(0.05, 0.08, 0.04); sweat.position.set(0.52, 0.12, 0.3); face.add(sweat);
+const floaters = [];
+for (let i = 0; i < 7; i++) {
+  const g = new THREE.Group(); headG.add(g);
+  const h = new THREE.Mesh(heartGeo, heartMat); h.scale.setScalar(1.6); g.add(h);
+  const s = new THREE.Mesh(starGeo, starMat); s.scale.setScalar(1.4); g.add(s);
+  g.visible = false; floaters.push({ g, h, s });
+}
+let floatKind = null;
+
+function limb(x, y, z, sx, sy) {
+  const p = new THREE.Group(); p.position.set(x, y, z); pose.add(p);
+  const m = outline(shadowed(new THREE.Mesh(SPH, mat(COL.cream))), 1.08); m.scale.set(sx, sy, sx); m.position.y = -sy * 0.85; p.add(m);
+  return p;
+}
+const armL = limb(-0.5, 1.16, 0.05, 0.12, 0.26), armR = limb(0.5, 1.16, 0.05, 0.12, 0.26);
+const legL = limb(-0.24, 0.42, 0.02, 0.16, 0.24), legR = limb(0.24, 0.42, 0.02, 0.16, 0.24);
+
+const tailBase = new THREE.Group(); tailBase.position.set(0, 0.5, -0.42); pose.add(tailBase);
+const tail = outline(shadowed(new THREE.Mesh(SPH, mat(COL.tail))), 1.06);
+tail.scale.set(0.21, 0.56, 0.19); tail.position.y = 0.48; tailBase.add(tail);
+
+// 토리 발이 걸리는 돌부리
+const rock = outline(shadowed(new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), mat(0xa89a86))), 1.1);
+rock.scale.set(1.2, 0.7, 1); rock.position.set(-0.9, 0.08, 0.2); scene.add(rock);
+
+// ===== 상자 =====
+function qTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  x.fillStyle = '#d9a46a'; x.fillRect(0, 0, 256, 256);
+  x.fillStyle = 'rgba(120,70,30,.15)'; for (let i = 0; i < 40; i++) x.fillRect(Math.random() * 256, Math.random() * 256, 30, 2);
+  x.fillStyle = '#5b3a8f'; x.font = 'bold 170px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('?', 128, 140);
+  return new THREE.CanvasTexture(c);
+}
+const qTex = qTexture();
+const kraft = new THREE.MeshLambertMaterial({ color: 0xd9a46a });
+const qMat = new THREE.MeshLambertMaterial({ map: qTex });
+const boxG = new THREE.Group(); scene.add(boxG);
+const boxInner = new THREE.Group(); boxG.add(boxInner);
+const base = outline(shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.72, 0.9), [kraft, kraft, kraft, kraft, qMat, qMat])), 1.04);
+base.position.y = 0.36; boxInner.add(base);
+const ribbonMat = mat(0x7b5cc4);
+const rb1 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.73, 0.92), ribbonMat); rb1.position.y = 0.36; boxInner.add(rb1);
+const lidPivot = new THREE.Group(); lidPivot.position.set(0, 0.72, -0.47); boxInner.add(lidPivot);
+const lid = outline(shadowed(new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.18, 1.0), kraft)), 1.04); lid.position.set(0, 0.09, 0.47); lidPivot.add(lid);
+const rb2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.19, 1.02), ribbonMat); rb2.position.copy(lid.position); lidPivot.add(rb2);
+const rb3 = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.19, 0.16), ribbonMat); rb3.position.copy(lid.position); lidPivot.add(rb3);
+[-1, 1].forEach(s => { const bow = outline(new THREE.Mesh(SPH, ribbonMat), 1.1); bow.scale.set(0.17, 0.1, 0.08); bow.position.set(s * 0.14, 0.25, 0.47); bow.rotation.z = s * 0.4; lidPivot.add(bow); });
+const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.3, 1, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+glow.position.y = 0.72; glow.scale.y = 0.001; glow.visible = false; boxInner.add(glow);
+const knot = new THREE.Mesh(SPH, ribbonMat); knot.scale.setScalar(0.07); knot.position.set(0, 0.23, 0.47); lidPivot.add(knot);
+
+// ===== 색종이 =====
+const confetti = [];
+{
+  const geo = new THREE.PlaneGeometry(0.09, 0.14);
+  const cols = [0xf3a3ac, 0x7b5cc4, 0xf6c454, 0x8fc8f0, 0xb19a45, 0xffffff];
+  for (let i = 0; i < 110; i++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cols[i % cols.length], side: THREE.DoubleSide }));
+    m.visible = false; scene.add(m);
+    confetti.push({ m, v: new THREE.Vector3(), s: new THREE.Vector3() });
+  }
+}
+function burst(at) {
+  confetti.forEach(c => {
+    c.m.visible = true; c.m.position.copy(at);
+    const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 2.4;
+    c.v.set(Math.cos(a) * sp, 4.5 + Math.random() * 3.5, Math.sin(a) * sp * 0.6);
+    c.s.set(Math.random() * 8, Math.random() * 8, Math.random() * 8);
+  });
+}
+
+// ===== 상태와 연출 =====
+const lerp = (a, b, k) => a + (b - a) * k;
+const ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const clamp01 = t => Math.max(0, Math.min(1, t));
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+let emotion = 'walk';
+const tailNow = { x: -0.6, z: 0, s: 1 };
+// 표정: normal 기본 / happy 신남 / funny 웃김 / scared 깜짝 / best 최고 / cry 눈물 / curious 궁금 / smug 가소롭 / fear 무서움 / lol 깔깔 / heart 하트 (sad, trip 은 연출용)
+const FACES = ['normal', 'happy', 'funny', 'scared', 'best', 'cry', 'curious', 'smug', 'fear', 'lol', 'heart'];
+function moodOf(k) {
+  if (['happy', 'funny', 'best', 'lol', 'heart'].includes(k)) return 'happy';
+  if (['scared', 'fear'].includes(k)) return 'scared';
+  if (['sad', 'cry'].includes(k)) return 'sad';
+  if (k === 'walk') return 'walk';
+  return 'idle';
+}
+let faceKind = 'normal';
+function setFace(kind) {
+  faceKind = kind;
+  const is = (...a) => a.includes(kind);
+  eyes.forEach((e, i) => {
+    const dotOn = is('normal', 'sad', 'trip', 'cry', 'curious', 'smug', 'scared', 'fear', 'walk', 'idle');
+    e.dot.visible = dotOn; e.hl.visible = dotOn && !is('smug');
+    e.happy.visible = is('happy', 'funny');
+    e.chev.visible = is('lol'); e.star.visible = is('best'); e.heart.visible = is('heart');
+    e.white.visible = e.whiteRing.visible = is('scared', 'fear');
+    e.lid.visible = is('smug'); e.brow.visible = is('curious') && i === 1;
+    e.tear.visible = is('sad');
+    e.stream.forEach(d => d.visible = is('cry'));
+    e.lolTear.visible = is('funny', 'lol');
+    let sx = 0.075, sy = 0.085, y = 0;
+    if (is('scared', 'fear')) { sx = 0.04; sy = 0.045; }
+    if (is('smug')) { sy = 0.045; y = -0.015; }
+    if (is('curious') && i === 0) { sx = 0.06; sy = 0.068; }
+    e.dot.scale.set(sx, sy, 0.04); e.dot.position.y = y; e.hl.position.y = 0.03 + y;
+  });
+  mouthW.visible = is('normal', 'sad', 'walk', 'idle');
+  mouthO.visible = is('scared', 'trip', 'curious');
+  mouthO.scale.set(is('curious') ? 0.035 : 0.06, is('curious') ? 0.035 : 0.07, 0.02);
+  mouthD.visible = is('happy', 'funny', 'lol', 'best', 'heart');
+  mouthD.scale.setScalar(is('lol') ? 1.25 : is('happy') ? 0.8 : 1);
+  mouthSmirk.visible = is('smug');
+  mouthWave.visible = is('cry', 'fear');
+  fearShade.visible = is('fear'); sweat.visible = is('fear', 'curious');
+  floatKind = is('heart') ? 'heart' : is('best') ? 'star' : null;
+  floaters.forEach(f => { f.g.visible = !!floatKind; f.h.visible = floatKind === 'heart'; f.s.visible = floatKind === 'star'; });
+}
+function faceMotion(f, t) {
+  const m = { arms: { lz: -0.45, rz: 0.45, x: 0 }, lx: 0.3 + Math.sin(t * 5) * 0.12, rx: -0.2 - Math.sin(t * 5) * 0.12, hz: Math.sin(t * 4) * 0.08, shake: 0 };
+  switch (f) {
+    case 'happy': m.arms = { lz: -2.3 + Math.sin(t * 8) * 0.25, rz: 2.3 - Math.sin(t * 8) * 0.25, x: 0 }; break;
+    case 'funny': m.arms = { lz: 0.55, rz: 0.45, xl: -2.0, xr: 0 }; m.hz = Math.sin(t * 14) * 0.06; m.shake = Math.sin(t * 20) * 0.03; break;
+    case 'lol': m.arms = { lz: 0.35, rz: -0.35, x: -0.9 }; m.hz = Math.sin(t * 16) * 0.16; m.shake = Math.sin(t * 16) * 0.07; break;
+    case 'scared': m.arms = { lz: -1.6, rz: 1.6, x: 0.2 }; m.hz = 0; m.shake = Math.sin(t * 40) * 0.01; break;
+    case 'best': m.arms = { lz: -0.5, rz: 2.6 + Math.sin(t * 6) * 0.1, x: 0 }; m.hz = 0.12; break;
+    case 'cry': m.arms = { lz: 0.3, rz: -0.3, x: -2.4 }; m.hz = Math.sin(t * 3) * 0.05; m.shake = Math.sin(t * 30) * 0.01; break;
+    case 'curious': m.arms = { lz: -0.45, rz: -0.5, xl: 0, xr: -2.3 }; m.hz = 0.3; break;
+    case 'smug': m.arms = { lz: 0.7, rz: -0.7, x: -1.2 }; m.hz = -0.15 + Math.sin(t * 1.5) * 0.03; break;
+    case 'fear': m.arms = { lz: -1.9 + Math.sin(t * 35) * 0.05, rz: 1.9, x: -1.3 }; m.hz = 0; m.shake = Math.sin(t * 45) * 0.025; break;
+    case 'heart': m.arms = { lz: -2.85, rz: 2.85, x: -0.3 }; m.hz = Math.sin(t * 2) * 0.1; break;
+  }
+  return m;
+}
+
+let bubbleTimer = 0, bubbleAnchor = null;
+function say(text, anchor, dur, style) {
+  bubbleEl.textContent = text;
+  bubbleEl.className = 'bubble on' + (style ? ' ' + style : '');
+  bubbleAnchor = anchor; bubbleTimer = dur; placeBubble();
+}
+const tmpV = new THREE.Vector3();
+function placeBubble() {
+  if (!bubbleAnchor) return;
+  bubbleAnchor(tmpV); tmpV.project(camera);
+  bubbleEl.style.left = ((tmpV.x + 1) / 2 * window.innerWidth) + 'px';
+  bubbleEl.style.top = ((1 - tmpV.y) / 2 * window.innerHeight) + 'px';
+}
+const camUp = new THREE.Vector3();
+const aboveHeadScreen = v => { headG.getWorldPosition(v); camUp.set(0, 1, 0).applyQuaternion(camera.quaternion); v.addScaledVector(camUp, 1.05); camUp.set(1, 0, 0).applyQuaternion(camera.quaternion); v.addScaledVector(camUp, 0.55); };
+const aboveTori = v => { headG.getWorldPosition(v); v.y += 1.0; };
+const aboveBox = v => { lid.getWorldPosition(v); v.y += 0.7; };
+const aboveFoot = v => { v.set(rock.position.x + 0.05, 0.95, rock.position.z); };
+
+const STOP_X = -1.3, START_X = -8.5;
+let lastIdx = -1;
+function pickMessage() {
+  let i = 0;
+  if (MESSAGES.length > 1) { do { i = Math.floor(Math.random() * MESSAGES.length); } while (i === lastIdx); }
+  lastIdx = i; const m = MESSAGES[i] || '';
+  const o = typeof m === 'string' ? { text: m } : m;
+  return { text: o.text || '', face: FACES.includes(o.face) ? o.face : 'happy' };
+}
+let current = { text: '', face: 'happy' };
+
+// 펑 충격파 링
+const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 8, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
+ring.rotation.x = Math.PI / 2; ring.visible = false; scene.add(ring);
+
+// 함께 날아가는 메시지 쪽지
+const paperCanvas = document.createElement('canvas'); paperCanvas.width = 1024; paperCanvas.height = 640;
+const paperTex = new THREE.CanvasTexture(paperCanvas);
+paperTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+paperTex.minFilter = THREE.LinearMipmapLinearFilter;
+const paper = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.0), new THREE.MeshBasicMaterial({ map: paperTex, side: THREE.DoubleSide, transparent: true }));
+paper.visible = false; scene.add(paper);
+const paperVel = new THREE.Vector3();
+const PAPER_FONT = '"Jua", "Gowun Dodum", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+function drawPaper(text) {
+  const x = paperCanvas.getContext('2d');
+  x.clearRect(0, 0, 1024, 640);
+  x.fillStyle = '#fffaf2'; x.strokeStyle = '#3a2a20'; x.lineWidth = 18;
+  x.beginPath(); if (x.roundRect) x.roundRect(14, 14, 996, 612, 70); else x.rect(14, 14, 996, 612); x.fill(); x.stroke();
+  x.fillStyle = '#3a2a20'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = '#9a8573'; x.font = '40px ' + PAPER_FONT; x.fillText('토리가 가져온 메시지', 512, 82);
+  x.strokeStyle = '#e6d9c7'; x.lineWidth = 4; x.beginPath(); x.moveTo(330, 122); x.lineTo(694, 122); x.stroke();
+  x.fillStyle = '#3a2a20';
+  x.font = '80px ' + PAPER_FONT;
+  const lines = [];
+  text.split('\n').forEach(part => { let line = '';
+    for (const ch of part) { if (x.measureText(line + ch).width > 860) { lines.push(line); line = ch; } else line += ch; }
+    lines.push(line); });
+  const n = Math.min(lines.length, 5);
+  const top = 360 - (n - 1) * 50;
+  lines.slice(0, 5).forEach((l, i) => x.fillText(l, 512, top + i * 100));
+  paperTex.needsUpdate = true;
+}
+// 웹폰트가 다 받아진 뒤에 다시 그려서 글자가 깨지지 않게 함
+function paintPaper(text) {
+  drawPaper(text);
+  if (document.fonts && document.fonts.load) document.fonts.load('80px "Jua"', text).then(() => drawPaper(text)).catch(() => {});
+}
+if (document.fonts && document.fonts.load) document.fonts.load('80px "Jua"', '토리 고생했다 수고 회식 아엠지 2026 IMG').catch(() => {});
+
+// 버드아이 카메라 (고정)
+const BIRD_SPOT = V(STOP_X, 0, 0.1), BIRD_CAM = V(STOP_X, 17, 5.6);
+const birdDir = new THREE.Vector3().subVectors(BIRD_CAM, BIRD_SPOT);
+const birdLen = birdDir.length(); birdDir.normalize();
+const sideVec = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 0, -1), birdDir).normalize();
+const downVec = new THREE.Vector3().crossVectors(birdDir, sideVec).normalize().negate();
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+// k=1 이면 카메라 앞 3.1 지점 (BS~CU 사이)
+let END_D = 4.4;
+const TORI_OFF = -1.05; // 값이 클수록(0에 가까울수록) 결과 화면에서 토리가 위로 올라감
+function flyPoint(k, out) { return out.copy(BIRD_SPOT).addScaledVector(birdDir, k * (birdLen - END_D)); }
+// 토리가 가슴 앞에 메시지 카드를 들고 있는 위치
+const HOLD = V(0, 0.62, 0.8), heldPos = new THREE.Vector3(), freeQ = new THREE.Quaternion();
+function heldTarget(bob) { tori.updateMatrixWorld(true); return pose.localToWorld(heldPos.set(HOLD.x, HOLD.y + (bob || 0), HOLD.z)); }
+// 이스터에그: 가끔 메시지 대신 똥만 튀어나옴
+const POOP_CHANCE = 0.08;
+let lastWasPoop = false;
+const poopG = new THREE.Group(); scene.add(poopG); poopG.visible = false;
+{
+  const pm = mat(0x8b5a2b);
+  [[0.0, 0.42, 0.13], [0.15, 0.33, 0.11], [0.28, 0.24, 0.09]].forEach(([y, r, h]) => {
+    const m = outline(shadowed(new THREE.Mesh(SPH, pm)), 1.06); m.scale.set(r, h, r); m.position.y = y; poopG.add(m);
+  });
+  const tip = outline(new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.22, 16), pm), 1.08); tip.position.y = 0.42; tip.rotation.z = 0.35; poopG.add(tip);
+  const shine = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })); shine.scale.set(0.06, 0.03, 0.02); shine.position.set(-0.18, 0.06, 0.38); poopG.add(shine);
+  poopG.children.forEach(c => { c.position.y -= 0.2; });
+  const fly = new THREE.Group(); poopG.add(fly); poopG.userData.flies = fly;
+  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(SPH, inkMat); f.scale.setScalar(0.025); fly.add(f); }
+}
+let prop = paper;
+
+// ===== 결과 화면 이펙트 =====
+const rayCanvas = document.createElement('canvas'); rayCanvas.width = rayCanvas.height = 512;
+{ const x = rayCanvas.getContext('2d'); const g = x.createRadialGradient(256, 256, 20, 256, 256, 256);
+  g.addColorStop(0, 'rgba(255,244,190,0.95)'); g.addColorStop(0.6, 'rgba(255,236,170,0.35)'); g.addColorStop(1, 'rgba(255,236,170,0)');
+  x.fillStyle = g; for (let i = 0; i < 16; i++) { const a0 = i / 16 * Math.PI * 2, a1 = a0 + Math.PI / 16; x.beginPath(); x.moveTo(256, 256); x.arc(256, 256, 256, a0, a1); x.closePath(); x.fill(); }
+  const g2 = x.createRadialGradient(256, 256, 0, 256, 256, 150); g2.addColorStop(0, 'rgba(255,250,220,0.9)'); g2.addColorStop(1, 'rgba(255,250,220,0)'); x.fillStyle = g2; x.fillRect(0, 0, 512, 512); }
+const rays = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(rayCanvas), transparent: true, depthWrite: false, opacity: 0 }));
+rays.visible = false; scene.add(rays);
+const twinkles = [];
+for (let i = 0; i < 16; i++) { const m = new THREE.Mesh(starGeo, new THREE.MeshBasicMaterial({ color: i % 3 ? 0xffe27a : 0xffffff, side: THREE.DoubleSide, transparent: true })); m.visible = false; scene.add(m);
+  twinkles.push({ m, x: (Math.random() * 2 - 1), y: (Math.random() * 2 - 1), ph: Math.random() * 6.28, sp: 2 + Math.random() * 3 }); }
+const rain = [];
+{ const geo = new THREE.PlaneGeometry(0.07, 0.11); const cols = [0xf3a3ac, 0x7b5cc4, 0xf6c454, 0x8fc8f0, 0xb19a45, 0xffffff];
+  for (let i = 0; i < 45; i++) { const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cols[i % cols.length], side: THREE.DoubleSide })); m.visible = false; scene.add(m);
+    rain.push({ m, life: 0, sp: new THREE.Vector3() }); } }
+let fxOn = 0;
+const fxC = new THREE.Vector3();
+function fxCenter() { return flyPoint(1, fxC); }
+function respawnRain(r, first) {
+  fxCenter(); r.m.visible = true;
+  r.m.position.copy(fxC).addScaledVector(sideVec, (Math.random() * 2 - 1) * 2.6).addScaledVector(downVec, (Math.random() * 2 - 1) * 2.2).addScaledVector(birdDir, 0.6 + Math.random() * 1.6);
+  r.life = first ? Math.random() * 3 : 3; r.sp.set(Math.random() * 4, Math.random() * 4, Math.random() * 4);
+}
+function setFx(on) {
+  fxOn = on ? 1 : 0;
+  rays.visible = on; twinkles.forEach(w => w.m.visible = on);
+  rain.forEach(r => { if (on) respawnRain(r, true); else r.m.visible = false; });
+  if (!on) rays.material.opacity = 0;
+}
+function updateFx(dt, t) {
+  if (!fxOn) return;
+  fxCenter();
+  rays.position.copy(fxC).addScaledVector(birdDir, -1.2).addScaledVector(downVec, -0.5);
+  rays.lookAt(BIRD_CAM); rays.rotateZ(t * 0.25);
+  rays.material.opacity = Math.min(0.85, rays.material.opacity + dt * 1.5);
+  rays.scale.setScalar(1 + Math.sin(t * 2) * 0.03);
+  twinkles.forEach(w => {
+    w.m.position.copy(fxC).addScaledVector(sideVec, w.x * 1.9).addScaledVector(downVec, w.y * 1.5 - 0.6).addScaledVector(birdDir, 0.4);
+    w.m.lookAt(BIRD_CAM); w.m.rotateZ(t * 0.8 + w.ph);
+    const k = Math.max(0, Math.sin(t * w.sp + w.ph)); w.m.scale.setScalar(0.4 + k * 1.1); w.m.material.opacity = 0.3 + k * 0.7;
+  });
+  rain.forEach(r => {
+    r.life -= dt; if (r.life <= 0) respawnRain(r);
+    r.m.position.y -= dt * 0.9; r.m.position.addScaledVector(sideVec, Math.sin(t * 2 + r.sp.x) * dt * 0.2);
+    r.m.rotation.x += r.sp.x * dt; r.m.rotation.y += r.sp.y * dt; r.m.rotation.z += r.sp.z * dt;
+  });
+}
+const HOLD_ARMS = { lz: 0.35, rz: -0.35, x: -1.35 };
+
+
+const BOX_SPOT = V(2.0, 0, 0.1);
+let phase, pt, lidAngle = 0, lidLift = 0, hop = 0, flags = {};
+const boxFrom = new THREE.Vector3();
+
+function start(p) { phase = p; pt = 0; flags = {}; }
+function hideUI() { card.classList.remove('on'); againBtn.hidden = restartBtn.hidden = true; }
+function resetBox() {
+  lidAngle = 0; lidLift = 0; lidPivot.rotation.x = 0; lidPivot.position.y = 0.72;
+  boxInner.rotation.set(0, 0, 0); boxInner.position.set(0, 0, 0);
+  glow.visible = false; glow.scale.y = 0.001;
+  confetti.forEach(c => c.m.visible = false);
+  lidPivot.rotation.z = 0; ring.visible = false; paper.visible = false; poopG.visible = false; setFx(false);
+}
+function fullShot() {
+  const tanH = Math.tan(THREE.MathUtils.degToRad(19));
+  const d = Math.max(3.2 / (2 * tanH), 4.8 / camera.aspect / (2 * tanH));
+  shot('full', V(0.35, 1.25, d), V(0.35, 1.1, 0), true);
+}
+function mediumShot() { shot('medium', V(0.45, 1.6, 4.6), V(0.35, 1.0, 0), true); }
+
+function clearBubble() { bubbleTimer = 0; bubbleAnchor = null; bubbleEl.className = 'bubble'; }
+function restart() {
+  clearBubble();
+  hideUI(); resetBox();
+  tori.position.set(START_X, 0, 0); tori.rotation.y = Math.PI / 2;
+  pose.rotation.set(0, 0, 0); pose.position.set(0, 0, 0); pose.scale.set(1, 1, 1); tori.rotation.set(0, tori.rotation.y, 0);
+  emotion = 'walk'; setFace('normal');
+  shot('wide', widePos, wideLook, true);
+  start('walk');
+}
+function reopen() {
+  clearBubble();
+  hideUI(); resetBox();
+  boxG.position.copy(BOX_SPOT); boxG.rotation.set(0, 0.25, 0);
+  tori.position.set(STOP_X, 0, 0); tori.rotation.y = 0.45;
+  pose.rotation.set(0, 0, 0); pose.position.set(0, 0, 0); pose.scale.set(1, 1, 1); tori.rotation.set(0, tori.rotation.y, 0);
+  emotion = 'idle'; setFace('normal');
+  mediumShot(); start('rattle');
+}
+againBtn.addEventListener('click', reopen);
+restartBtn.addEventListener('click', restart);
+renderer.domElement.addEventListener('click', () => { if (phase === 'happy' && hop <= 0) hop = 1; });
+
+function carryBox() {
+  const fwd = V(Math.sin(tori.rotation.y), 0, Math.cos(tori.rotation.y));
+  boxG.position.copy(tori.position).addScaledVector(fwd, 0.78);
+  boxG.position.y = 0.62 + pose.position.y;
+  boxG.rotation.set(0, tori.rotation.y, 0);
+}
+
+function update(dt, t) {
+  pt += dt;
+  let arms = { lz: -0.45, rz: 0.45, x: 0 }, legL_x = 0, legR_x = 0, tilt = 0, headTilt = 0;
+  const CARRY = { lz: -0.25, rz: 0.25, x: -1.25 };
+
+  if (phase === 'walk') {
+    // 컷 1: 와이드, 상자 들고 걸어오기
+    const k = clamp01(pt / 3.6);
+    tori.position.x = lerp(START_X, STOP_X, 1 - Math.pow(1 - k, 1.6));
+    const sw = Math.sin(t * 11) * 0.6 * (1 - k * 0.6);
+    legL_x = sw; legR_x = -sw; pose.position.y = Math.abs(Math.sin(t * 11)) * 0.08 * (1 - k * 0.5);
+    tilt = 0.12; arms = CARRY; emotion = 'walk';
+    carryBox();
+    if (pt > 3.6) {
+      // 컷 2: 다리 클로즈업 + 느낌표
+      start('catch'); setFace('scared');
+      shot('legs', V(STOP_X + 1.1, 0.42, 1.9), V(STOP_X + 0.4, 0.28, 0.1), true);
+      shot('legs', V(STOP_X + 0.95, 0.38, 1.6), V(STOP_X + 0.4, 0.28, 0.1), false, 1.2);
+    }
+  } else if (phase === 'catch') {
+    pose.position.y = 0;
+    legL_x = lerp(0.55, 0.7, clamp01(pt / 1.2)); legR_x = -0.45;
+    tilt = 0.12 + ease(clamp01(pt / 1.3)) * 0.28 + Math.sin(pt * 30) * 0.015;
+    arms = CARRY; emotion = 'scared'; carryBox();
+    if (pt > 0.15 && !flags.bang) { flags.bang = 1; say('!', aboveFoot, 1.0, 'alert'); }
+    if (pt > 1.3) {
+      start('trip'); boxFrom.copy(boxG.position); setFace('trip');
+      shot('wide', widePos, wideLook, true);
+    }
+  } else if (phase === 'trip') {
+    const k = clamp01(pt / 0.5);
+    tilt = lerp(0.4, 1.42, ease(k)); arms = { lz: -1.6, rz: 1.6, x: -2.2 }; emotion = 'scared';
+    legL_x = 0.7 * (1 - k); legR_x = -0.45 * (1 - k);
+    const bk = clamp01(pt / 0.7);
+    boxG.position.lerpVectors(boxFrom, BOX_SPOT, bk); boxG.position.y = lerp(boxFrom.y, 0, bk) + Math.sin(bk * Math.PI) * 1.3;
+    boxG.rotation.y = lerp(Math.PI / 2, Math.PI * 2 + 0.25, ease(bk)); boxG.rotation.z = Math.sin(bk * Math.PI) * -0.6;
+    if (pt > 0.45 && !flags.bang) { flags.bang = 1; say('콰당!', aboveTori, 0.9, 'big'); }
+    if (pt > 0.75) { boxG.position.copy(BOX_SPOT); boxG.rotation.set(0, 0.25, 0); start('down'); setFace('sad'); }
+  } else if (phase === 'down') {
+    tilt = 1.42; arms = { lz: -1.6, rz: 1.6, x: -2.4 }; emotion = 'sad';
+    boxInner.position.y = Math.max(0, Math.sin(pt * 12) * 0.12 * Math.exp(-pt * 5));
+    if (pt > 1.1) start('getup');
+  } else if (phase === 'getup') {
+    const k = ease(clamp01(pt / 0.9));
+    tilt = lerp(1.42, 0, k); tori.rotation.y = lerp(Math.PI / 2, 0.45, ease(clamp01((pt - 0.5) / 0.7)));
+    arms = { lz: lerp(-1.6, -0.45, k), rz: lerp(1.6, 0.45, k), x: lerp(-2.4, 0, k) }; emotion = 'sad';
+    if (pt > 1.3) { setFace('normal'); emotion = 'idle'; mediumShot(); start('rattle'); }
+  } else if (phase === 'rattle') {
+    // 컷 3: 상자가 들썩이고 놀라는 토리 (천천히 밀고 들어가기)
+    if (!flags.push) { flags.push = 1; shot('medium', V(0.4, 1.5, 3.9), V(0.3, 1.1, 0), false, 0.7); }
+    const strong = pt > 0.6;
+    emotion = strong ? 'scared' : 'idle';
+    const k = strong ? 1 : 0.35;
+    boxInner.rotation.z = Math.sin(pt * 38) * 0.12 * k; boxInner.rotation.x = Math.cos(pt * 29) * 0.06 * k;
+    boxInner.position.y = Math.abs(Math.sin(pt * 19)) * 0.06 * k;
+    if (strong && !flags.bang) { flags.bang = 1; setFace('scared'); say('!', aboveTori, 0.9, 'alert'); }
+    if (strong) { pose.position.y = Math.abs(Math.sin(pt * 30)) * 0.03; arms = { lz: -1.2, rz: 1.2, x: -0.4 }; tilt = -0.12; }
+    if (pt > 1.9) { boxInner.rotation.set(0, 0, 0); boxInner.position.y = 0; fullShot(); start('click'); }
+  } else if (phase === 'click') {
+    // F.S 로 컷 → 뚜껑이 딸깍 들썩이다가 펑!
+    emotion = 'scared'; arms = { lz: -1.2, rz: 1.2, x: -0.4 }; tilt = -0.12;
+    lidPivot.rotation.z = pt < 0.55 ? Math.sin(pt * 70) * 0.04 : 0;
+    lidLift = pt < 0.55 ? Math.abs(Math.sin(pt * 22)) * 0.06 : 0;
+    if (pt > 0.25 && !flags.click) { flags.click = 1; say('딸깍', aboveBox, 0.35); }
+    if (pt > 0.6) { start('blast'); }
+  } else if (phase === 'blast') {
+    // 상자에서 터져 나온 힘에 토리와 메시지가 하늘로 튕겨 올라감 → 프레임 아웃
+    if (!flags.pop) {
+      flags.pop = 1; const p = new THREE.Vector3(); boxG.getWorldPosition(p); p.y += 0.8;
+      burst(p); say('펑!', v => { boxG.getWorldPosition(v); v.y += 1.5; }, 0.7, 'alert');
+      glow.visible = true; ring.visible = true; ring.position.copy(p); ring.scale.setScalar(0.3); ring.material.opacity = 0.9;
+      current = pickMessage();
+      if ((location.hash === '#ddong' && !lastWasPoop) || (lastWasPoop === false && Math.random() < POOP_CHANCE)) current = { text: '', face: 'fear', poop: true };
+      lastWasPoop = !!current.poop;
+      prop = current.poop ? poopG : paper; if (!current.poop) paintPaper(current.text);
+      paper.visible = poopG.visible = false;
+      prop.visible = true; prop.position.copy(p); paperVel.set(-0.6, 11, 0.5);
+      setFace('scared');
+    }
+    lidLift += dt * (2 + pt * 30); lidAngle -= dt * 9; lidPivot.rotation.z += dt * 4;
+    glow.scale.y = lerp(glow.scale.y, 4, dt * 10); glow.position.y = 0.72 + glow.scale.y / 2;
+    ring.scale.multiplyScalar(1 + dt * 7); ring.material.opacity = Math.max(0, ring.material.opacity - dt * 1.6);
+    emotion = 'scared'; arms = { lz: -2.5, rz: 2.5, x: 0.3 }; legL_x = 0.5; legR_x = -0.5;
+    if (pt < 0.12) { pose.scale.set(1.12, 0.78, 1.12); }
+    else {
+      pose.scale.set(1, 1, 1);
+      const u = pt - 0.12;
+      tori.position.y = 13 * u - 2 * u * u; tori.position.x = STOP_X - 0.6 * u;
+      tilt = -0.4 - u * 2.5; tori.rotation.y = 0.45 + u * 5;
+    }
+    paperVel.y -= dt * 2; prop.position.addScaledVector(paperVel, dt); prop.rotation.z += dt * 6; prop.rotation.y += dt * 4;
+    if (pt > 0.95) {
+      // 더 높고 먼 버드아이, 카메라 고정
+      start('fly'); ring.visible = false;
+      { const tanH = Math.tan(THREE.MathUtils.degToRad(19)); END_D = Math.max(4.4, 2.05 / camera.aspect / (2 * tanH)); }
+      shot('bird', BIRD_CAM, BIRD_SPOT, true);
+      pose.rotation.set(0, 0, 0);
+    }
+  } else if (phase === 'fly') {
+    // 토리와 메시지가 카메라를 향해 날아오고, 날아가던 토리가 카드를 낚아채 가슴 앞에 들어 보임
+    const k = easeOut(clamp01(pt / 1.7));
+    emotion = k < 0.75 ? 'scared' : current.face;
+    if (k >= 0.75 && !flags.face) { flags.face = 1; setFace(current.face); }
+    flyPoint(lerp(0.35, 1, k), tmpA);
+    tori.position.copy(tmpA);
+    tori.lookAt(BIRD_CAM); tori.rotateZ((1 - k) * Math.PI * 3); tori.translateY(TORI_OFF);
+    pose.rotation.set(0, 0, 0);
+    legL_x = 0.4; legR_x = -0.3;
+    const g = ease(clamp01((pt - 0.55) / 0.5));
+    flyPoint(lerp(0.25, 0.97, easeOut(clamp01(pt / 1.9))), tmpB);
+    tmpB.addScaledVector(sideVec, 1.35).addScaledVector(downVec, 0.2);
+    prop.position.copy(tmpB); prop.lookAt(BIRD_CAM); prop.rotateZ((1 - k) * -Math.PI * 4 + 0.12);
+    if (g > 0) {
+      freeQ.copy(prop.quaternion);
+      const h = heldTarget();
+      prop.position.lerpVectors(tmpB, h, g);
+      prop.quaternion.copy(freeQ).slerp(tori.quaternion, g);
+      if (g > 0.15 && !flags.grab) { flags.grab = 1; say('덥석!', aboveHeadScreen, 0.6); }
+    }
+    arms = g > 0.3 ? HOLD_ARMS : (moodOf(emotion) === 'happy' ? { lz: -2.4, rz: 2.4, x: 0 } : { lz: -1.9, rz: 1.9, x: 0.2 });
+    if (pt > 1.9) {
+      start('happy'); setFx(true);
+      if (current.poop) say('…똥?', aboveHeadScreen, 9999, 'big');
+      else if (current.face === 'curious') say('?', aboveHeadScreen, 9999, 'big');
+      else if (current.face === 'smug') say('흥', aboveHeadScreen, 9999);
+      msgEl.textContent = current.poop ? '똥이 나왔어요' : current.text; card.classList.add('on');
+      const p = new THREE.Vector3(); headG.getWorldPosition(p); burst(p);
+      againBtn.hidden = restartBtn.hidden = false;
+    }
+  } else if (phase === 'happy') {
+    emotion = current.face;
+    const fm = faceMotion(current.face, t);
+    flyPoint(1, tmpA); tori.position.copy(tmpA);
+    tori.lookAt(BIRD_CAM); tori.translateY(TORI_OFF + Math.sin(t * 2.5) * 0.03); tori.translateX(fm.shake * 0.6);
+    pose.rotation.set(0, 0, 0);
+    arms = HOLD_ARMS; legL_x = fm.lx; legR_x = fm.rx; headTilt = fm.hz;
+    // 카드는 고정: 읽기 편하게 흔들지 않음
+  }
+
+  if (hop > 0) { hop -= dt * 1.8; pose.position.y = Math.sin((1 - Math.max(hop, 0)) * Math.PI) * 0.4; }
+
+  lidPivot.rotation.x = lidAngle; lidPivot.position.y = 0.72 + lidLift;
+  pose.rotation.x = tilt;
+  armL.rotation.set(arms.xl !== undefined ? arms.xl : arms.x, 0, arms.lz); armR.rotation.set(arms.xr !== undefined ? arms.xr : arms.x, 0, arms.rz);
+  legL.rotation.x = legL_x; legR.rotation.x = legR_x;
+  headG.rotation.z = lerp(headG.rotation.z, headTilt, Math.min(1, dt * 8));
+
+  // 꼬리로 감정 표현 (긴 타원 하나)
+  const mood = moodOf(emotion);
+  const T = { x: -0.6, z: Math.sin(t * 1.5) * 0.08, s: 1 };
+  if (mood === 'walk') T.x = -0.55 + Math.sin(t * 11) * 0.3;
+  if (mood === 'happy') { T.x = -0.45; T.z = Math.sin(t * 24) * 0.6; }
+  if (mood === 'scared') { T.x = -0.12; T.z = Math.sin(t * 50) * 0.05; T.s = 1.35; }
+  if (mood === 'sad') { T.x = -2.0; T.s = 0.92; }
+  const kk = Math.min(1, dt * 10);
+  tailNow.x = lerp(tailNow.x, T.x, mood === 'walk' ? 1 : kk);
+  tailNow.z = lerp(tailNow.z, T.z, mood === 'happy' ? 1 : kk);
+  tailNow.s = lerp(tailNow.s, T.s, kk);
+  tailBase.rotation.set(tailNow.x, 0, tailNow.z);
+  tail.scale.set(0.21 * tailNow.s, 0.56 * (1 + (tailNow.s - 1) * 0.3), 0.19 * tailNow.s);
+
+  // 기쁘거나 놀라면 나뭇잎 귀가 빙글빙글
+  const spinSpeed = mood === 'happy' ? 14 : mood === 'scared' ? 22 : 0;
+  leaves.forEach((l, i) => { if (spinSpeed) l.rotation.y += dt * spinSpeed * (i ? -1 : 1); else l.rotation.y = lerp(l.rotation.y, Math.round(l.rotation.y / Math.PI) * Math.PI, dt * 6); });
+
+  const blink = (t % 3.7) < 0.12 && (phase === 'walk' || phase === 'down');
+  eyes.forEach(e => {
+    e.g.scale.y = blink ? 0.15 : 1;
+    e.stream.forEach(d => { const q = (t * 1.3 + d.userData.o) % 1; d.position.set(0.02, -0.09 - q * 0.32, 0.04); d.scale.set(0.03 * (1 - q * 0.4), 0.045, 0.03); });
+  });
+  if (floatKind) floaters.forEach((f, i) => { const q = (t * 0.55 + i / floaters.length) % 1; f.g.position.set(Math.sin(i * 2.3) * 0.75, 0.35 + q * 1.0, 0.25 + Math.cos(i * 1.7) * 0.2); f.g.scale.setScalar(Math.sin(q * Math.PI)); f.g.rotation.z = Math.sin(t * 3 + i) * 0.4; });
+  if (poopG.visible) poopG.userData.flies.children.forEach((f, i) => { const a = t * (5 + i) + i * 2.1; f.position.set(Math.cos(a) * 0.4, 0.35 + Math.sin(a * 1.7) * 0.12, Math.sin(a) * 0.25); });
+  updateFx(dt, t);
+  if (faceKind === 'fear') fearShade.material.opacity = 0.3 + Math.sin(t * 6) * 0.08;
+
+  confetti.forEach(c => {
+    if (!c.m.visible) return;
+    c.v.y -= 9 * dt; c.v.multiplyScalar(0.985);
+    c.m.position.addScaledVector(c.v, dt);
+    c.m.rotation.x += c.s.x * dt; c.m.rotation.y += c.s.y * dt; c.m.rotation.z += c.s.z * dt;
+    if (c.m.position.y < 0.02) { c.m.position.y = 0.02; c.v.set(0, 0, 0); c.s.set(0, 0, 0); c.m.rotation.set(-Math.PI / 2, 0, 0); }
+  });
+
+  // 카메라
+  const ck = Math.min(1, dt * camEase);
+  camera.position.lerp(camPos, ck); curLook.lerp(camLook, ck); camera.lookAt(curLook);
+
+  if (bubbleTimer > 0) { bubbleTimer -= dt; placeBubble(); if (bubbleTimer <= 0) { bubbleEl.className = 'bubble'; bubbleAnchor = null; } }
+}
+
+restart();
+let last = performance.now(), clock = 0;
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
+  update(dt, clock);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
